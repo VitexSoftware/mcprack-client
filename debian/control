@@ -1,0 +1,26 @@
+Source: mcprack-client
+Section: python
+Priority: optional
+Maintainer: Vítězslav Dvořák <info@vitexsoftware.cz>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-python,
+ pybuild-plugin-pyproject,
+ python3-all,
+ python3-setuptools,
+ python3-pytest <!nocheck>,
+Standards-Version: 4.7.0
+Homepage: https://github.com/VitexSoftware/mcprack-client
+Vcs-Git: https://github.com/VitexSoftware/mcprack-client.git
+Vcs-Browser: https://github.com/VitexSoftware/mcprack-client
+Rules-Requires-Root: no
+
+Package: python3-mcprack-client
+Architecture: all
+Depends:
+ ${misc:Depends},
+ ${python3:Depends},
+Description: shared library for mcprack MCP client config sync tools
+ Library used by mcprack-sync-claude, mcprack-sync-cursor and
+ mcprack-sync-vscode to fetch a user's MCP server selection from a
+ mcprack instance and merge it into the local client configuration file.

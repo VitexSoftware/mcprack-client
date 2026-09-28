@@ -1,0 +1,5 @@
+mcprack-client (1.0.0-1) UNRELEASED; urgency=medium
+
+  * Initial release — shared library for Claude/Cursor/VS Code sync utils.
+
+ -- Vítězslav Dvořák <info@vitexsoftware.cz>  Mon, 28 Sep 2026 19:50:00 +0200
