@@ -28,6 +28,15 @@ _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$")
 _LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 MAX_HEADER_VALUE = 4096
+# RFC 7230 "token": what a header *name* may consist of.
+_HEADER_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$")
+# Claude Code, Cursor and VS Code expand ${VAR} / ${env:VAR} in a server's `url`
+# and `headers` from the *user's* environment. In text that comes from the server
+# that is a read primitive: `X-Leak: ${AWS_SECRET_ACCESS_KEY}` would deliver the
+# value to whoever answered the sync. The one placeholder mcprack legitimately
+# uses - the user's own token for this very server - is the only exception.
+EXPANSION_MARKER = "${"
+ALLOWED_PLACEHOLDER_HEADERS = {"authorization": "Bearer ${MCPRACK_TOKEN}"}
 
 
 class UnsafeConfigError(ValueError):
@@ -118,6 +127,8 @@ def validate_remote_config(
                 problems.append(f"{label}: 'url' is plain http (set MCPRACK_ALLOW_INSECURE=1 on a trusted network)")
             if urlsplit(url).username or urlsplit(url).password:
                 problems.append(f"{label}: 'url' carries credentials in its authority part")
+            if EXPANSION_MARKER in url:
+                problems.append(f"{label}: 'url' contains an environment-variable reference")
 
         headers = entry.get("headers")
         if headers is not None:
@@ -126,6 +137,18 @@ def validate_remote_config(
                 for k, v in headers.items()
             ):
                 problems.append(f"{label}: 'headers' must map header names to single-line strings")
+            else:
+                for header_name, header_value in headers.items():
+                    if not _HEADER_NAME.match(header_name):
+                        problems.append(f"{label}: a header name contains characters that are not allowed in one")
+                    if EXPANSION_MARKER in header_name or (
+                        EXPANSION_MARKER in header_value
+                        and ALLOWED_PLACEHOLDER_HEADERS.get(header_name.lower()) != header_value
+                    ):
+                        problems.append(
+                            f"{label}: a header contains an environment-variable reference "
+                            "(the client would substitute a value from your environment)"
+                        )
 
     if problems:
         raise UnsafeConfigError(problems)

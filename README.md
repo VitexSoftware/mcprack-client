@@ -44,6 +44,11 @@ answer (exit status 3, nothing written) if anything is off:
   If mcprack builds its URLs from a different `PUBLIC_BASE_URL`, list it:
   `MCPRACK_TRUSTED_ORIGINS=https://mcprack.example.com` (comma separated; or
   `configure --trusted-origin URL`);
+- no `${VAR}` / `${env:VAR}` reference in a `url` or header: Claude Code, Cursor
+  and VS Code substitute those from *your* environment, so text from the server
+  could otherwise read it (`X-Leak: ${AWS_SECRET_ACCESS_KEY}`). The single
+  exception is `Authorization: Bearer ${MCPRACK_TOKEN}` — your own token for
+  that same server. Header names must be plain RFC 7230 tokens;
 - the API token is only sent over **https** (or to loopback). Plain `http://` on
   a trusted private network needs `MCPRACK_ALLOW_INSECURE=1`
   (`configure --allow-insecure`);
