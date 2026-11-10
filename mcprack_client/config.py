@@ -24,6 +24,12 @@ class ClientSettings:
     url: str
     token: str
     source: str
+    # Origins besides MCPRACK_URL that the servers' URLs may point to (mcprack
+    # builds them from its PUBLIC_BASE_URL, which can differ from the address
+    # this client reaches it on).
+    trusted_origins: tuple[str, ...] = ()
+    # Send the token over plain http to a host that is not loopback.
+    allow_insecure: bool = False
 
     def ok(self) -> bool:
         return bool(self.url.strip() and self.token.strip())
@@ -65,7 +71,7 @@ def load_settings(
             merged.update(parsed)
             sources.append(f"{label}:{path}")
 
-    for key in ("MCPRACK_URL", "MCPRACK_TOKEN"):
+    for key in ("MCPRACK_URL", "MCPRACK_TOKEN", "MCPRACK_TRUSTED_ORIGINS", "MCPRACK_ALLOW_INSECURE"):
         if key in environ and environ[key].strip():
             merged[key] = environ[key].strip()
             if "env" not in sources:
@@ -75,6 +81,10 @@ def load_settings(
         url=(merged.get("MCPRACK_URL") or "").rstrip("/"),
         token=merged.get("MCPRACK_TOKEN") or "",
         source=", ".join(sources) if sources else "none",
+        trusted_origins=tuple(
+            item.strip().rstrip("/") for item in (merged.get("MCPRACK_TRUSTED_ORIGINS") or "").split(",") if item.strip()
+        ),
+        allow_insecure=(merged.get("MCPRACK_ALLOW_INSECURE") or "").strip().lower() in {"1", "true", "yes", "on"},
     )
 
 
@@ -83,18 +93,25 @@ def save_settings(
     token: str,
     *,
     path: Path | None = None,
+    trusted_origins: tuple[str, ...] = (),
+    allow_insecure: bool = False,
 ) -> Path:
     """Write user settings file (0600). Creates parent dirs as needed."""
     target = path if path is not None else default_user_config_path()
     target.parent.mkdir(parents=True, exist_ok=True)
-    body = (
-        "# mcprack client sync settings\n"
-        f"MCPRACK_URL={url.rstrip('/')}\n"
-        f"MCPRACK_TOKEN={token}\n"
-    )
-    target.write_text(body, encoding="utf-8")
-    try:
-        target.chmod(0o600)
-    except OSError:
-        pass
+    lines = [
+        "# mcprack client sync settings",
+        f"MCPRACK_URL={url.rstrip('/')}",
+        f"MCPRACK_TOKEN={token}",
+    ]
+    if trusted_origins:
+        lines.append(f"MCPRACK_TRUSTED_ORIGINS={','.join(trusted_origins)}")
+    if allow_insecure:
+        lines.append("MCPRACK_ALLOW_INSECURE=1")
+    # Created 0600 from the start - not written with the umask's mode and
+    # tightened afterwards, which leaves the token readable for a moment.
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        os.fchmod(handle.fileno(), 0o600)
+        handle.write("\n".join(lines) + "\n")
     return target

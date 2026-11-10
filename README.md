@@ -26,6 +26,36 @@ MCPRACK_TOKEN=mcr_...
 ```
 
 Create a personal API token in the mcprack web UI (user menu → API tokens).
+`mcprack-sync-* configure --url … --token-file FILE` (or the hidden prompt) stores
+it without putting it on the command line, where `ps` would show it.
+
+## What is accepted from the server, and what is not
+
+The sync tools write mcprack's answer into your own client configuration
+(`~/.claude.json`, Cursor's and VS Code's `mcp.json`). In those files an entry
+with `command`/`args` is a **program the client will run** — so a compromised or
+tampered-with answer would otherwise run code on every machine that syncs. The
+client therefore accepts only what mcprack really sends and refuses the **whole**
+answer (exit status 3, nothing written) if anything is off:
+
+- entries have only `type` (`http`/`sse`), `url` and `headers` — never
+  `command`, `args`, `env`, `cwd` …;
+- every `url` is on the **same origin** as `MCPRACK_URL` (scheme, host, port).
+  If mcprack builds its URLs from a different `PUBLIC_BASE_URL`, list it:
+  `MCPRACK_TRUSTED_ORIGINS=https://mcprack.example.com` (comma separated; or
+  `configure --trusted-origin URL`);
+- the API token is only sent over **https** (or to loopback). Plain `http://` on
+  a trusted private network needs `MCPRACK_ALLOW_INSECURE=1`
+  (`configure --allow-insecure`);
+- redirects are never followed (the token must not leave the configured host);
+  the answer is size-limited; server text is stripped of control characters
+  before it is printed.
+
+Writing is careful as well: the `.bak` copy is created `0600` (it contains
+everything the original does, e.g. OAuth tokens), a symlinked config stays a
+symlink, the file's permissions are kept, an unchanged answer does not touch the
+file at all, and if the client saved the file while we were merging, the merge is
+redone on top of its newer content instead of overwriting it.
 
 ## Development
 

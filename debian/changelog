@@ -1,5 +1,10 @@
 mcprack-client (1.0.0-1) UNRELEASED; urgency=medium
 
   * Initial release — shared library for Claude/Cursor/VS Code sync utils.
+  * Refuse server entries that would make the client run a program or
+    talk to another origin (D-01); send the token only over
+    https/loopback, never follow redirects, bound the answer; private
+    .bak, symlink-safe, concurrent-save-safe writes; configure reads the
+    token from a file or prompt.
 
- -- Vítězslav Dvořák <info@vitexsoftware.cz>  Mon, 28 Sep 2026 19:50:00 +0200
+ -- Vítězslav Dvořák <info@vitexsoftware.cz>  Tue, 10 Nov 2026 22:29:40 +0100

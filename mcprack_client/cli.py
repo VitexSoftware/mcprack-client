@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
+import os
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -13,7 +15,8 @@ from .api import McprackApiError, fetch_client_config
 from .config import load_settings, save_settings
 from .merge import merge_mcp_config
 from .paths import managed_state_path
-from .write import atomic_write_json, load_json_file
+from .validate import UnsafeConfigError, validate_remote_config
+from .write import ConcurrentModification, atomic_write_json, file_signature, load_json_file
 
 
 ResolvePath = Callable[[], Path]
@@ -64,7 +67,24 @@ def build_parser(prog: str, description: str) -> argparse.ArgumentParser:
 
     configure = sub.add_parser("configure", help="Write ~/.config/mcprack/client.env")
     configure.add_argument("--url", required=True, help="mcprack base URL, e.g. https://mcprack.example.com")
-    configure.add_argument("--token", required=True, help="Personal API token from mcprack")
+    configure.add_argument(
+        "--token",
+        default=None,
+        help="Personal API token (visible in the process list - prefer --token-file, MCPRACK_TOKEN or the prompt)",
+    )
+    configure.add_argument("--token-file", type=Path, default=None, help="Read the API token from this file (first line)")
+    configure.add_argument(
+        "--trusted-origin",
+        action="append",
+        default=[],
+        metavar="URL",
+        help="Another origin the servers' URLs may point to (mcprack's PUBLIC_BASE_URL, when it differs from --url); repeatable",
+    )
+    configure.add_argument(
+        "--allow-insecure",
+        action="store_true",
+        help="Send the token over plain http to a non-loopback host (trusted private network only)",
+    )
 
     return parser
 
@@ -83,7 +103,22 @@ def run_cli(
     args = parser.parse_args(argv)
 
     if args.command == "configure":
-        path = save_settings(args.url, args.token)
+        token = args.token
+        if token:
+            print("warning: --token is visible to other users in the process list; prefer --token-file", file=sys.stderr)
+        elif args.token_file:
+            token = args.token_file.read_text(encoding="utf-8").splitlines()[0].strip() if args.token_file.stat().st_size else ""
+        else:
+            token = os.environ.get("MCPRACK_TOKEN", "").strip() or getpass.getpass("mcprack API token (input hidden): ").strip()
+        if not token:
+            print("No API token given.", file=sys.stderr)
+            return 2
+        path = save_settings(
+            args.url,
+            token,
+            trusted_origins=tuple(args.trusted_origin),
+            allow_insecure=args.allow_insecure,
+        )
         print(f"Wrote {path}")
         return 0
 
@@ -110,24 +145,46 @@ def run_cli(
         return 2
 
     try:
-        remote = fetch_client_config(settings.url, settings.token, api_client)
+        remote = fetch_client_config(
+            settings.url, settings.token, api_client, allow_insecure=settings.allow_insecure
+        )
     except McprackApiError as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
+    # Nothing from the answer is written until every entry has passed: an entry
+    # that would make the client run a program, or talk to another host, is a
+    # reason to stop - not to skip that one entry and carry on trusting the rest.
     try:
+        validate_remote_config(
+            remote,
+            servers_key=servers_key,
+            base_url=settings.url,
+            trusted_origins=settings.trusted_origins,
+            allow_insecure=settings.allow_insecure,
+        )
+    except UnsafeConfigError as exc:
+        print(f"refusing the answer from {settings.url} - nothing was written:", file=sys.stderr)
+        for problem in exc.problems:
+            print(f"  - {problem}", file=sys.stderr)
+        return 3
+
+    def read_and_merge():
+        signature = file_signature(config_path)
         existing = load_json_file(config_path)
+        return signature, merge_mcp_config(
+            existing,
+            remote,
+            servers_key=servers_key,
+            previously_managed=_load_managed(tool),
+            replace_all=bool(args.replace),
+        )
+
+    try:
+        signature, result = read_and_merge()
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
-
-    result = merge_mcp_config(
-        existing,
-        remote,
-        servers_key=servers_key,
-        previously_managed=_load_managed(tool),
-        replace_all=bool(args.replace),
-    )
 
     print(f"target:    {config_path}")
     print(f"remote:    {len(result.managed_names)} server(s) from {settings.url}")
@@ -146,7 +203,23 @@ def run_cli(
         print("dry-run:   no files written")
         return 0
 
-    atomic_write_json(config_path, result.config, backup=True)
+    if result.changed or not config_path.is_file():
+        # The client (Claude Code rewrites ~/.claude.json all the time) may save
+        # while we merge. Writing over it would drop its change, so if the file
+        # moved under us, merge again onto what is there now.
+        for _attempt in range(3):
+            try:
+                atomic_write_json(config_path, result.config, backup=True, expect_signature=signature)
+                break
+            except ConcurrentModification:
+                try:
+                    signature, result = read_and_merge()
+                except ValueError as exc:
+                    print(str(exc), file=sys.stderr)
+                    return 1
+        else:
+            print(f"{config_path} keeps changing while it is being updated - nothing was written, try again", file=sys.stderr)
+            return 1
+        print(f"wrote:     {config_path}")
     _save_managed(tool, result.managed_names, config_path)
-    print(f"wrote:     {config_path}")
     return 0
