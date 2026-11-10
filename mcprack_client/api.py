@@ -14,7 +14,7 @@ from .validate import transport_is_acceptable
 # path) that answers with gigabytes should not be able to exhaust the memory of
 # a workstation that merely wanted to sync.
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
-_CLIENT_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
+_CLIENT_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")  # used with fullmatch(): `$` would accept a trailing newline
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -51,7 +51,7 @@ def fetch_client_config(
     Expected API response shape:
         {"ok": true, "data": {"filename": "...", "config": {...}}}
     """
-    if not _CLIENT_NAME.match(client):
+    if not _CLIENT_NAME.fullmatch(client):
         raise McprackApiError(f"invalid client name {client!r}")
     if not transport_is_acceptable(base_url, allow_insecure=allow_insecure):
         raise McprackApiError(

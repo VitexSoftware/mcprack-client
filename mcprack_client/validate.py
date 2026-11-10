@@ -24,12 +24,14 @@ from .merge import _server_map_from_remote
 
 ALLOWED_KEYS = frozenset({"type", "url", "headers"})
 ALLOWED_TYPES = frozenset({"http", "sse"})
-_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$")
+# Used with fullmatch(): a `$` anchor also matches before a trailing newline,
+# which would let "zabbix\n" through.
+_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,63}")
 _LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 MAX_HEADER_VALUE = 4096
 # RFC 7230 "token": what a header *name* may consist of.
-_HEADER_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$")
+_HEADER_NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}")
 # Claude Code, Cursor and VS Code expand ${VAR} / ${env:VAR} in a server's `url`
 # and `headers` from the *user's* environment. In text that comes from the server
 # that is a read primitive: `X-Leak: ${AWS_SECRET_ACCESS_KEY}` would deliver the
@@ -95,8 +97,8 @@ def validate_remote_config(
     problems: list[str] = []
     servers = _server_map_from_remote(remote, servers_key)
     for name, entry in servers.items():
-        label = f"server {name!r}" if _NAME.match(str(name)) else "a server with an unusable name"
-        if not isinstance(name, str) or not _NAME.match(name):
+        label = f"server {name!r}" if _NAME.fullmatch(str(name)) else "a server with an unusable name"
+        if not isinstance(name, str) or not _NAME.fullmatch(name):
             problems.append(f"{label}: name must be 1-64 characters of letters, digits, '.', '_', '-' or space")
             continue
         if not isinstance(entry, dict):
@@ -139,7 +141,7 @@ def validate_remote_config(
                 problems.append(f"{label}: 'headers' must map header names to single-line strings")
             else:
                 for header_name, header_value in headers.items():
-                    if not _HEADER_NAME.match(header_name):
+                    if not _HEADER_NAME.fullmatch(header_name):
                         problems.append(f"{label}: a header name contains characters that are not allowed in one")
                     if EXPANSION_MARKER in header_name or (
                         EXPANSION_MARKER in header_value

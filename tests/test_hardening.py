@@ -82,7 +82,7 @@ def test_plain_http_needs_an_explicit_opt_in_unless_loopback():
     check({"mcpServers": {"s": {"type": "http", "url": "http://127.0.0.1:8912/x"}}}, base_url="http://127.0.0.1:8912")
 
 
-@pytest.mark.parametrize("name", ["../x", "a\nb", "", "x" * 65, ".hidden", "a/b", "__proto__\x00"])
+@pytest.mark.parametrize("name", ["../x", "a\nb", "", "x" * 65, ".hidden", "a/b", "__proto__\x00", "zabbix\n", "zabbix\r\n"])
 def test_names_are_restricted(name):
     with pytest.raises(UnsafeConfigError):
         check({"mcpServers": {name: {"type": "http", "url": "https://mcprack.example.com/x"}}})
@@ -130,7 +130,7 @@ def test_the_one_placeholder_mcprack_uses_is_allowed():
                                 "headers": {"authorization": "Bearer ${MCPRACK_TOKEN}"}}}})
 
 
-@pytest.mark.parametrize("name", ["X Bad", "X:Bad", "X-Bad\t", "", "Ünï", "A" * 200])
+@pytest.mark.parametrize("name", ["X Bad", "X:Bad", "X-Bad\t", "", "Ünï", "A" * 200, "X-Bad\n", "X-Bad\r\n"])
 def test_header_names_must_be_rfc7230_tokens(name):
     with pytest.raises(UnsafeConfigError):
         check({"mcpServers": {"s": {"type": "http", "url": "https://mcprack.example.com/x", "headers": {name: "v"}}}})
@@ -354,9 +354,10 @@ def test_error_text_from_the_server_cannot_inject_terminal_escapes(mcprack):
     assert "\x1b" not in str(caught.value) and "\x07" not in str(caught.value)
 
 
-def test_a_client_name_cannot_alter_the_path(mcprack):
+@pytest.mark.parametrize("client", ["../../admin/x", "claude\n", "claude/../x", "Claude", "", "a" * 40])
+def test_a_client_name_cannot_alter_the_path(mcprack, client):
     with pytest.raises(McprackApiError, match="invalid client name"):
-        fetch_client_config(mcprack.url, "tok", "../../admin/x")
+        fetch_client_config(mcprack.url, "tok", client)
     assert mcprack.hits == []
 
 
